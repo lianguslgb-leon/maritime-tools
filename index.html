@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#10243a">
+<title>Beaufort Wind Converter | 船舶风力换算</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1724;--panel:#14283c;--line:#29445d;--text:#edf5fc;--muted:#a9bdcf;--accent:#54c6d5}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(145deg,#0b1724,#102b40);color:var(--text);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;min-height:100vh}
+main{max-width:760px;margin:auto;padding:28px 18px 48px}.top{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:24px}
+h1{font-size:clamp(1.5rem,5vw,2.15rem);line-height:1.15;margin:0}.sub{color:var(--muted);margin-top:7px}
+.lang{background:#1c354b;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:9px}
+.panel{background:rgba(20,40,60,.94);border:1px solid var(--line);border-radius:18px;padding:20px;margin:14px 0;box-shadow:0 12px 32px #0003}
+label{display:block;color:var(--muted);font-size:.9rem;margin-bottom:8px}
+.controls{display:grid;grid-template-columns:1fr 130px;gap:10px}
+input,select{width:100%;padding:14px;border-radius:11px;border:1px solid var(--line);background:#0b1b2b;color:var(--text);font-size:1.1rem}
+.result{display:flex;align-items:center;gap:18px}.number{font-size:4.5rem;font-weight:750;line-height:1;color:var(--accent);min-width:105px}
+.result h2{font-size:1.35rem;margin:0 0 5px}.muted{color:var(--muted)}
+.meter{height:9px;background:#29445d;border-radius:99px;overflow:hidden;margin-top:18px}.meter span{display:block;height:100%;background:linear-gradient(90deg,#54c6d5,#9be0a5);width:0}
+.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:16px}.stat{background:#0d2031;border-radius:12px;padding:12px}.stat b{display:block;font-size:1.1rem;margin-top:4px}
+table{width:100%;border-collapse:collapse;font-size:.9rem}td,th{text-align:left;padding:9px 7px;border-bottom:1px solid var(--line)}th{color:var(--muted);font-weight:600}
+details summary{cursor:pointer;color:var(--accent);font-weight:600}.note{font-size:.84rem;color:var(--muted);margin-top:16px}
+@media(max-width:480px){main{padding:20px 13px 36px}.panel{padding:16px}.number{font-size:3.8rem;min-width:85px}.controls{grid-template-columns:1fr 105px}}
+</style>
+</head>
+<body>
+<main>
+  <div class="top">
+    <div><h1>Beaufort Wind Converter</h1><div class="sub" id="subtitle">船舶值班风力换算工具 · 离线可用</div></div>
+    <select class="lang" id="language" aria-label="Language"><option value="zh">中文</option><option value="en">English</option></select>
+  </div>
+  <section class="panel">
+    <label id="inputLabel" for="speed">输入风速</label>
+    <div class="controls">
+      <input id="speed" type="number" min="0" step="0.1" value="15" inputmode="decimal">
+      <select id="unit" aria-label="Wind speed unit"><option value="kn">knots</option><option value="ms">m/s</option><option value="kmh">km/h</option></select>
+    </div>
+  </section>
+  <section class="panel">
+    <div class="result">
+      <div class="number" id="force">4</div>
+      <div><h2 id="forceName">Moderate breeze</h2><div class="muted" id="forceZh">和风</div><div class="muted" id="range">11–16 knots</div></div>
+    </div>
+    <div class="meter"><span id="bar"></span></div>
+    <div class="stats">
+      <div class="stat"><span class="muted" id="knLabel">风速（节）</span><b id="knots">15.0 kn</b></div>
+      <div class="stat"><span class="muted" id="msLabel">风速（米/秒）</span><b id="ms">7.7 m/s</b></div>
+      <div class="stat"><span class="muted" id="seaLabel">海面状况</span><b id="sea">小浪</b></div>
+      <div class="stat"><span class="muted" id="seaEnLabel">Sea state</span><b id="seaEn">Small waves</b></div>
+    </div>
+  </section>
+  <section class="panel">
+    <label id="reverseLabel" for="forceSelect">反向查询：选择 Beaufort 风级</label>
+    <select id="forceSelect"></select>
+    <p class="muted" id="reverseResult">该风级对应风速范围将显示在这里。</p>
+  </section>
+  <section class="panel">
+    <details><summary id="tableTitle">查看完整 Beaufort 风级表</summary>
+      <div style="overflow-x:auto;margin-top:12px"><table><thead><tr><th>BF</th><th id="thName">风级名称</th><th id="thRange">节（kn）</th><th id="thSea">海面描述</th></tr></thead><tbody id="scaleTable"></tbody></table></div>
+    </details>
+    <p class="note" id="note">依据 WMO Beaufort 风级标准的海面风速区间。风级判断应结合船舶实际观测、海况及船长指示。本工具仅供快速参考，不替代航海气象资料和正式观测。</p>
+  </section>
+</main>
+<script>
+const scale=[
+[0,0,1,"Calm","无风","Calm","镜面海面"],
+[1,1,3,"Light air","软风","Ripples","微波"],
+[2,4,6,"Light breeze","轻风","Small wavelets","小波"],
+[3,7,10,"Gentle breeze","微风","Large wavelets","大波"],
+[4,11,16,"Moderate breeze","和风","Small waves","小浪"],
+[5,17,21,"Fresh breeze","清风","Moderate waves","中浪"],
+[6,22,27,"Strong breeze","强风","Large waves","大浪"],
+[7,28,33,"Near gale","疾风","Very large waves","巨浪"],
+[8,34,40,"Gale","大风","High waves","狂浪"],
+[9,41,47,"Strong gale","烈风","Very high waves","狂涛"],
+[10,48,55,"Storm","狂风","Very high waves","狂涛"],
+[11,56,63,"Violent storm","暴风","Exceptionally high waves","极巨浪"],
+[12,64,999,"Hurricane force","飓风","Air filled with foam and spray","海面满布泡沫和浪花"]
+];
+const $=id=>document.getElementById(id);
+const text={
+zh:{subtitle:"船舶值班风力换算工具 · 离线可用",input:"输入风速",reverse:"反向查询：选择 Beaufort 风级",range:"节",kn:"风速（节）",ms:"风速（米/秒）",sea:"海面状况",seaEn:"Sea state",table:"查看完整 Beaufort 风级表",name:"风级名称",knRange:"节（kn）",seaDesc:"海面描述",note:"依据 WMO Beaufort 风级标准的海面风速区间。风级判断应结合船舶实际观测、海况及船长指示。本工具仅供快速参考，不替代航海气象资料和正式观测。",invalid:"请输入有效的非负风速。",reverseText:"对应风速范围："},
+en:{subtitle:"On-watch wind conversion · Works offline",input:"Enter wind speed",reverse:"Reverse lookup: select Beaufort force",range:"knots",kn:"Wind speed (knots)",ms:"Wind speed (m/s)",sea:"Sea description",seaEn:"Sea state",table:"View full Beaufort scale",name:"Description",knRange:"knots (kn)",seaDesc:"Sea description",note:"Wind-speed ranges follow the WMO Beaufort scale. Assess force together with actual observations, sea conditions and the Master's instructions. For quick reference only; not a substitute for official meteorological information or observations.",invalid:"Enter a valid non-negative wind speed.",reverseText:"Wind-speed range: "}
+};
+function convertToKn(v,u){return u==="ms"?v/0.514444:u==="kmh"?v/1.852:v}
+function fmt(v){return Number.isInteger(v)?String(v):v.toFixed(1)}
+function update(){
+ const lang=$("language").value,t=text[lang],raw=$("speed").value,v=Number(raw),u=$("unit").value;
+ ["subtitle","inputLabel","reverseLabel","tableTitle","thName","thRange","thSea","note","knLabel","msLabel","seaLabel","seaEnLabel"].forEach((id,i)=>{});
+ $("subtitle").textContent=t.subtitle;$("inputLabel").textContent=t.input;$("reverseLabel").textContent=t.reverse;$("tableTitle").textContent=t.table;$("thName").textContent=t.name;$("thRange").textContent=t.knRange;$("thSea").textContent=t.seaDesc;$("note").textContent=t.note;
+ $("knLabel").textContent=t.kn;$("msLabel").textContent=t.ms;$("seaLabel").textContent=t.sea;$("seaEnLabel").textContent=t.seaEn;
+ if(raw.trim()===""||!Number.isFinite(v)||v<0){$("force").textContent="–";$("forceName").textContent=t.invalid;$("forceZh").textContent="";$("range").textContent="";$("bar").style.width="0";$("knots").textContent="–";$("ms").textContent="–";$("sea").textContent="–";$("seaEn").textContent="–";return}
+ const kn=convertToKn(v,u),idx=scale.findIndex(s=>kn<=s[2]),s=scale[Math.max(0,idx)];
+ $("force").textContent=s[0];$("forceName").textContent=s[3];$("forceZh").textContent=s[4];$("range").textContent=(s[1]===0?"< 1":s[1])+"–"+(s[2]===999?"64+":s[2])+" "+t.range;
+ $("knots").textContent=fmt(kn)+" kn";$("ms").textContent=fmt(kn*0.514444)+" m/s";$("sea").textContent=s[6];$("seaEn").textContent=s[5];$("bar").style.width=(s[0]/12*100)+"%";
+}
+function build(){
+ const lang=$("language").value;
+ $("forceSelect").innerHTML=scale.map(s=>`<option value="${s[0]}">BF ${s[0]} · ${s[3]}</option>`).join("");
+ $("scaleTable").innerHTML=scale.map(s=>`<tr><td>${s[0]}</td><td>${s[3]} / ${s[4]}</td><td>${s[1]===0?"<1":s[1]}–${s[2]===999?"64+":s[2]}</td><td>${s[6]}</td></tr>`).join("");
+ reverse();
+}
+function reverse(){const s=scale[Number($("forceSelect").value)||0];$("reverseResult").textContent=text[$("language").value].reverseText+(s[1]===0?"< 1":s[1])+"–"+(s[2]===999?"64+":s[2])+" knots";}
+$("speed").addEventListener("input",update);$("unit").addEventListener("change",update);$("language").addEventListener("change",()=>{build();update()});$("forceSelect").addEventListener("change",reverse);
+build();update();
+</script>
+</body></html>
