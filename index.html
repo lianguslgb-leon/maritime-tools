@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#10243a">
-<title>Beaufort Wind Converter | 船舶风力换算</title>
+<title>Maritime Tools | Beaufort Wind Converter</title>
 <style>
 :root{color-scheme:dark;--bg:#0b1724;--panel:#14283c;--line:#29445d;--text:#edf5fc;--muted:#a9bdcf;--accent:#54c6d5}
 *{box-sizing:border-box}body{margin:0;background:linear-gradient(145deg,#0b1724,#102b40);color:var(--text);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;min-height:100vh}
@@ -30,6 +30,7 @@ details summary{cursor:pointer;color:var(--accent);font-weight:600}.note{font-si
     <div><h1>Beaufort Wind Converter</h1><div class="sub" id="subtitle">船舶值班风力换算工具 · 离线可用</div></div>
     <select class="lang" id="language" aria-label="Language"><option value="zh">中文</option><option value="en">English</option></select>
   </div>
+  <nav class="panel" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><strong id="navWind">风力换算</strong><a href="tide.html" id="navTide" style="color:var(--accent)">潮汐与潮高查询 →</a></nav>
   <section class="panel">
     <label id="inputLabel" for="speed">输入风速</label>
     <div class="controls">
@@ -88,7 +89,7 @@ function fmt(v){return Number.isInteger(v)?String(v):v.toFixed(1)}
 function update(){
  const lang=$("language").value,t=text[lang],raw=$("speed").value,v=Number(raw),u=$("unit").value;
  ["subtitle","inputLabel","reverseLabel","tableTitle","thName","thRange","thSea","note","knLabel","msLabel","seaLabel","seaEnLabel"].forEach((id,i)=>{});
- $("subtitle").textContent=t.subtitle;$("inputLabel").textContent=t.input;$("reverseLabel").textContent=t.reverse;$("tableTitle").textContent=t.table;$("thName").textContent=t.name;$("thRange").textContent=t.knRange;$("thSea").textContent=t.seaDesc;$("note").textContent=t.note;
+ $("navWind").textContent=lang==="zh"?"风力换算":"Wind converter";$("navTide").textContent=lang==="zh"?"潮汐与潮高查询 →":"Tides & heights →";$("subtitle").textContent=t.subtitle;$("inputLabel").textContent=t.input;$("reverseLabel").textContent=t.reverse;$("tableTitle").textContent=t.table;$("thName").textContent=t.name;$("thRange").textContent=t.knRange;$("thSea").textContent=t.seaDesc;$("note").textContent=t.note;
  $("knLabel").textContent=t.kn;$("msLabel").textContent=t.ms;$("seaLabel").textContent=t.sea;$("seaEnLabel").textContent=t.seaEn;
  if(raw.trim()===""||!Number.isFinite(v)||v<0){$("force").textContent="–";$("forceName").textContent=t.invalid;$("forceZh").textContent="";$("range").textContent="";$("bar").style.width="0";$("knots").textContent="–";$("ms").textContent="–";$("sea").textContent="–";$("seaEn").textContent="–";return}
  const kn=convertToKn(v,u),idx=scale.findIndex(s=>kn<=s[2]),s=scale[Math.max(0,idx)];
@@ -102,7 +103,7 @@ function build(){
  reverse();
 }
 function reverse(){const s=scale[Number($("forceSelect").value)||0];$("reverseResult").textContent=text[$("language").value].reverseText+(s[1]===0?"< 1":s[1])+"–"+(s[2]===999?"64+":s[2])+" knots";}
-$("speed").addEventListener("input",update);$("unit").addEventListener("change",update);$("language").addEventListener("change",()=>{build();update()});$("forceSelect").addEventListener("change",reverse);
-build();update();
+$("speed").addEventListener("input",update);$("unit").addEventListener("change",update);$("language").addEventListener("change",()=>{localStorage.setItem("mt-lang",$("language").value);build();update()});$("forceSelect").addEventListener("change",reverse);
+$("language").value=localStorage.getItem("mt-lang")==="en"?"en":"zh";build();update();
 </script>
 </body></html>
