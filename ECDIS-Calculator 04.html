@@ -1,0 +1,48 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>ECDIS 水深设置计算器</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#eef4f4;color:#17323b;font:16px/1.55 system-ui,sans-serif}main{max-width:720px;margin:auto;padding:24px 16px}header{border-top:5px solid #148581}h1{margin:14px 0 0;font-size:1.8rem}p{margin:6px 0 14px}section,details{margin:14px 0;background:white;border:1px solid #cadbdc;border-radius:12px;padding:17px}label{display:block;margin:12px 0;font-weight:600}input,select,button{display:block;width:100%;margin-top:4px;padding:10px;border:1px solid #879da1;border-radius:6px;font:inherit;background:white;color:inherit}button{background:#086862;color:white;cursor:pointer}summary{cursor:pointer;font-weight:700}.row{display:flex;align-items:center;justify-content:space-between;gap:8px;border-bottom:1px solid #dfeaea;padding:10px 0}.row:last-child{border:0}output{font-variant-numeric:tabular-nums;color:#086862;font-weight:700}small{display:block;font-weight:400}#note{font-size:.93rem}[hidden]{display:none}
+</style><main><header><h1>ECDIS 水深设置计算器</h1><p>OOCL MAGNOLIA · Safety parameters</p></header>
+<section><label>最深静态吃水 · Deepest static draught (m)<input id="draft" type="number" min="0" step="any" inputmode="decimal"></label></section>
+<details id="settings" open><summary>航段设置 · Passage settings</summary>
+<label>下沉量计算方式 · Squat method<select id="mode"><option value="">请选择 / Select</option><option value="open">平吃水，开阔水域 / Even keel, open water</option><option value="confined">平吃水，受限水域 / Even keel, confined water</option><option value="manual">按本船计算表输入 / Enter verified squat</option></select></label>
+<label id="speedLabel">航段最大计划对水航速 · Max planned STW (kn)<input id="speed" type="number" min="6" max="24" step="any"></label>
+<label id="manualLabel" hidden>该吃水对应的最大下沉量 · Verified max squat (m)<input id="manual" type="number" min="0" step="any"></label>
+<label>本航段可计入的潮高 · Applicable tide above chart datum (m)<input id="tide" type="number" step="any"></label>
+<label>海图水深精度余量 · CATZOC allowance (m)<input id="zoc" type="number" min="0" step="any"></label>
+<label>其他附加量 · Variables (m)<input id="extra" type="number" min="0" step="any"></label>
+<p><small>按航段 UKC 表填写。若某项经确认取零，请输入 0。负潮高保留负号。</small></p>
+<button id="save" type="button">保存本航段设置 · Save locally</button><small id="status" role="status"></small></details>
+<section aria-live="polite"><div class="row"><span>浅水等深线<small>Shallow Contour</small></span><output id="shallow"></output></div>
+<div class="row"><span>安全水深<small>Safety Depth</small></span><output id="safe"></output></div>
+<div class="row"><span>安全等深线输入值<small>Safety Contour setting</small></span><output id="contour"></output></div>
+<div class="row"><span>深水等深线<small>Deep Contour</small></span><output id="deep"></output></div></section><p id="note" role="status"></p>
+<details><summary>计算依据 · Calculation details</summary><p>按所提供的本船 Safety Parameters 表，以最深静态吃水 D 作为最大吃水。Shallow = D + Squat − Tide。Safety Depth = Shallow + CATZOC + 10% × D + Variables。Safety Contour 输入同值。Deep = 4 × D。</p><p>自动模式仅用于平吃水，平均吃水等于 D。本船表覆盖 9 至 16.5 m、6 至 24 kn。按表底公式计算，开阔水域 Squat = Cb × STW² / 100，受限水域除以 50。非表列吃水对相邻 Cb 作线性插值，Squat 保留两位小数后代入。其他工况可输入本船核定的 Squat。</p><p>结果供复核，显示至 0.01 m；设备输入精度和取整按本船程序执行。若 ENC 缺少输入值对应的安全等深线，核对下一条更深的可用线。更换航段、时间窗或水域时重新确认设置。</p></details></main>
+<script>
+const el=id=>document.getElementById(id);
+const fields=['mode','speed','tide','zoc','extra'];
+const key='magnolia-ecdis-leg-v1';
+const blocks=[.6324,.6352,.6380,.6407,.6434,.6461,.6487,.6513,.6538,.6564,.6589,.6614,.6639,.6663,.6687,.6712,.6736,.6759,.6783,.6807,.6831,.6854,.6878,.6901,.6925,.6949,.6973,.6997,.7021,.7046,.7071];
+function number(id){const n=el(id).valueAsNumber;return Number.isFinite(n)?n:null}
+function autoSquat(d,v,mode){
+ if(d<9||d>16.5||v===null||v<6||v>24)return null;
+ const index=(d-9)*4,lo=Math.floor(index),hi=Math.ceil(index);
+ const cb=blocks[lo]+(blocks[hi]-blocks[lo])*(index-lo);
+ return Math.round(cb*v*v/(mode==='open'?100:50)*100)/100;
+}
+function show(id,value){el(id).textContent=value===null?'待输入':value<=0?'请复核':value.toFixed(2)+' m'}
+function update(){
+ const d=number('draft'),mode=el('mode').value,manual=mode==='manual';
+ el('manualLabel').hidden=!manual;el('speedLabel').hidden=manual;
+ const valid=d!==null&&d>0;
+ const squat=!valid||!mode?null:manual?number('manual'):autoSquat(d,number('speed'),mode);
+ const tide=number('tide'),z=number('zoc'),e=number('extra');
+ const shallow=squat!==null&&squat>=0&&tide!==null?d+squat-tide:null;
+ const safe=shallow!==null&&z!==null&&z>=0&&e!==null&&e>=0?shallow+.1*d+z+e:null;
+ show('deep',valid?4*d:null);show('shallow',shallow);show('safe',safe);show('contour',safe);
+ el('note').textContent=!valid?'请输入正值吃水。':!mode?'请选择下沉量计算方式。':squat===null||squat<0?(manual?'请填写此吃水对应的核定 Squat。':'自动计算范围：平吃水 9 至 16.5 m，对水航速 6 至 24 kn。'):('Squat '+squat.toFixed(2)+' m。'+(safe===null?' 请补全潮高和非负余量。':''));
+}
+try{const p=JSON.parse(localStorage.getItem(key));if(p){for(const f of fields)el(f).value=p[f]??'';el('status').textContent='已读取上次设置，请确认仍适用。'}}catch{}
+document.addEventListener('input',event=>{if(event.target.id==='draft'||event.target.id==='mode')el('manual').value='';if(fields.includes(event.target.id))el('status').textContent='设置已修改，尚未保存。';update()});
+el('save').onclick=()=>{try{localStorage.setItem(key,JSON.stringify(Object.fromEntries(fields.map(f=>[f,el(f).value]))));el('status').textContent='航段设置已保存。手动 Squat 随吃水重新确认。'}catch{el('status').textContent='浏览器未允许保存。本次计算仍可使用。'}};
+update();
+</script></html>
