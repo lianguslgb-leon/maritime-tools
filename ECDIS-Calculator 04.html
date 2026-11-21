@@ -7,6 +7,21 @@
 <label>下沉量计算方式 · Squat method<select id="mode"><option value="">请选择 / Select</option><option value="open">平吃水，开阔水域 / Even keel, open water</option><option value="confined">平吃水，受限水域 / Even keel, confined water</option><option value="manual">按本船计算表输入 / Enter verified squat</option></select></label>
 <label id="speedLabel">航段最大计划对水航速 · Max planned STW (kn)<input id="speed" type="number" min="6" max="24" step="any"></label>
 <label id="manualLabel" hidden>该吃水对应的最大下沉量 · Verified max squat (m)<input id="manual" type="number" min="0" step="any"></label>
+<label>潮高来源 · Tide source<select id="source"><option value="port" selected>港口代码＋当地 ETA</option><option value="manual">手动输入 / Manual</option><option value="noaa">在线预报 / NOAA predictions</option></select></label>
+<section id="portPanel"><label>港口代码 · Port code<input id="port" list="ports" placeholder="例如 USSAV" autocomplete="off" autocapitalize="characters"></label><datalist id="ports"></datalist>
+<small id="berth"></small><label>预计通行日期和时间 · Port local ETA<input id="eta" type="datetime-local"></label>
+<label id="foldLabel" hidden>当地时钟回拨，此时间出现两次<select id="fold"><option value="">请选择</option><option value="0">第一次（回拨前）</option><option value="1">第二次（回拨后）</option></select></label><small id="utc"></small>
+<label>潮高数据源<select id="provider"><option value="noaa">NOAA 参考潮站 · MLLW</option><option value="world">WorldTides 泊位坐标查询 · CD</option></select></label>
+<label id="keyLabel" hidden>个人 WorldTides API key<input id="apiKey" type="password" autocomplete="off"><small>仅本次页面使用，查询会消耗个人账户额度。</small></label>
+<button type="button" id="query">查询 ETA 潮高</button><p id="result" role="status"></p>
+<button id="apply" type="button" hidden>已核对预报位置、海图基准面及本航段适用性，代入计算</button>
+<small>此模式计算单一 ETA 的天文预测潮高。航段时间窗的最低潮高请另行核对。</small></section>
+<section id="online" hidden><label>潮站 · Station<select id="station"><option value="">选择适用于本航段的潮站</option><option value="8665530">Charleston, SC · 8665530</option><option value="8670870">Fort Pulaski, Savannah River · 8670870</option><option value="custom">其他 NOAA 潮站</option></select></label>
+<label id="customLabel" hidden>NOAA 七位潮站编号<input id="stationId" inputmode="numeric" maxlength="7"></label>
+<label>通过时段开始 · UTC<input id="start" type="datetime-local"></label><label>通过时段结束 · UTC<input id="end" type="datetime-local"></label>
+<p><small>初始时段为当前 UTC 起一小时，可修改。使用覆盖该时段的 6 分钟预报点最低值，单位米。预报不含气象增减水。</small></p>
+<label><input style="display:inline;width:auto" type="checkbox" id="datumOk"> 已核对潮站适用，航段海图基准面为 MLLW，本航段允许计入预测潮高。</label>
+<button type="button" id="refresh">更新潮高并重新计算</button><small role="status" id="tideStatus"></small></section>
 <label>本航段可计入的潮高 · Applicable tide above chart datum (m)<input id="tide" type="number" step="any"></label>
 <label>海图水深精度余量 · CATZOC allowance (m)<input id="zoc" type="number" min="0" step="any"></label>
 <label>其他附加量 · Variables (m)<input id="extra" type="number" min="0" step="any"></label>
@@ -19,7 +34,7 @@
 <details><summary>计算依据 · Calculation details</summary><p>按所提供的本船 Safety Parameters 表，以最深静态吃水 D 作为最大吃水。Shallow = D + Squat − Tide。Safety Depth = Shallow + CATZOC + 10% × D + Variables。Safety Contour 输入同值。Deep = 4 × D。</p><p>自动模式仅用于平吃水，平均吃水等于 D。本船表覆盖 9 至 16.5 m、6 至 24 kn。按表底公式计算，开阔水域 Squat = Cb × STW² / 100，受限水域除以 50。非表列吃水对相邻 Cb 作线性插值，Squat 保留两位小数后代入。其他工况可输入本船核定的 Squat。</p><p>结果供复核，显示至 0.01 m；设备输入精度和取整按本船程序执行。若 ENC 缺少输入值对应的安全等深线，核对下一条更深的可用线。更换航段、时间窗或水域时重新确认设置。</p></details></main>
 <script>
 const el=id=>document.getElementById(id);
-const fields=['mode','speed','tide','zoc','extra'];
+const fields=['mode','speed','zoc','extra'];
 const key='magnolia-ecdis-leg-v1';
 const blocks=[.6324,.6352,.6380,.6407,.6434,.6461,.6487,.6513,.6538,.6564,.6589,.6614,.6639,.6663,.6687,.6712,.6736,.6759,.6783,.6807,.6831,.6854,.6878,.6901,.6925,.6949,.6973,.6997,.7021,.7046,.7071];
 function number(id){const n=el(id).valueAsNumber;return Number.isFinite(n)?n:null}
@@ -41,6 +56,157 @@ function update(){
  show('deep',valid?4*d:null);show('shallow',shallow);show('safe',safe);show('contour',safe);
  el('note').textContent=!valid?'请输入正值吃水。':!mode?'请选择下沉量计算方式。':squat===null||squat<0?(manual?'请填写此吃水对应的核定 Squat。':'自动计算范围：平吃水 9 至 16.5 m，对水航速 6 至 24 kn。'):('Squat '+squat.toFixed(2)+' m。'+(safe===null?' 请补全潮高和非负余量。':''));
 }
+
+const tideFields = ['source','station','stationId','start','end','datumOk'];
+let requestVersion = 0;
+const utcMinute = date => date.toISOString().slice(0,16);
+const now = Date.now();
+el('start').value = utcMinute(new Date(now));
+el('end').value = utcMinute(new Date(now + 3600000));
+function resetTide() {
+  requestVersion++;
+  const online = el('source').value === 'noaa';
+  el('online').hidden = !online;
+  el('customLabel').hidden = el('station').value !== 'custom';
+  el('tide').readOnly = online;
+  el('tide').value = '';
+  el('tideStatus').textContent = '';
+  update();
+}
+document.addEventListener('input', event => {
+  if (tideFields.includes(event.target.id)) {
+    if (['source','station','stationId'].includes(event.target.id)) el('datumOk').checked = false;
+    resetTide();
+  }
+});
+el('refresh').onclick = async () => {
+  resetTide();
+  const version = requestVersion;
+  const status = el('tideStatus');
+  const station = el('station').value === 'custom' ? el('stationId').value.trim() : el('station').value;
+  const start = Date.parse(el('start').value+'Z'), end = Date.parse(el('end').value+'Z');
+  if (!/^\d{7}$/.test(station) || !el('datumOk').checked) {
+    status.textContent = '请选择潮站并确认海图基准面。'; return;
+  }
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || end-start > 7*86400000) {
+    status.textContent = '请输入有效的 UTC 起止时间，单次最多七天。'; return;
+  }
+  const step = 360000, first = Math.floor(start/step)*step, last = Math.ceil(end/step)*step;
+  const apiDate = ms => utcMinute(new Date(ms)).replaceAll('-','').replace('T',' ');
+  const query = new URLSearchParams({product:'predictions',station,datum:'MLLW',units:'metric',time_zone:'gmt',format:'json',interval:'6',begin_date:apiDate(first),end_date:apiDate(last),application:'MaritimeTools'});
+  const controller = new AbortController();
+  const timer = setTimeout(()=>controller.abort(),20000);
+  status.textContent = '正在查询 NOAA…';
+  try {
+    const response = await fetch('https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?'+query,{signal:controller.signal});
+    if (!response.ok) throw Error();
+    const data = await response.json();
+    const points = new Map();
+    for (const row of data.predictions || []) {
+      const time = Date.parse(String(row.t).replace(' ','T')+'Z');
+      if (typeof row.v === 'string' && row.v.trim() && Number.isFinite(Number(row.v))) points.set(time,Number(row.v));
+    }
+    let lowest = Infinity, when;
+    for (let time=first; time<=last; time+=step) {
+      if (!points.has(time)) throw Error();
+      if (points.get(time)<lowest) {lowest=points.get(time);when=time;}
+    }
+    if (version !== requestVersion) return;
+    el('tide').value = String(lowest);
+    status.textContent = 'NOAA '+station+' · 最低预报点 '+lowest+' m MLLW · '+utcMinute(new Date(when)).replace('T',' ')+' UTC';
+    update();
+  } catch {
+    if (version === requestVersion) status.textContent = '未取得完整预报。请检查网络、潮站和时段，或切换为手动输入。';
+  } finally { clearTimeout(timer); }
+};
+
+const eastern='America/New_York', china='Asia/Shanghai';
+const ports={
+ USSAV:['Savannah · Garden City CB#7',32+8.452/60,-(81+8.585/60),eastern,'8670424','Port Wentworth（参考站）'],
+ USCHS:['Charleston · WWT#1',32+49.851/60,-(79+53.577/60),eastern,'8665530','Charleston（港区参考站）'],
+ USNYC:['New York · MAHEI TERMINAL',40+40.721/60,-(74+8.764/60),eastern,'8530882','Port Elizabeth（Newark Bay）'],
+ THLCH:['Laem Chabang · LCH D3',13+4.185/60,100+53.686/60,'Asia/Bangkok'],
+ VNCMT:['Cai Mep · CMIT',10+30.630/60,107+.620/60,'Asia/Ho_Chi_Minh'],
+ CNYPG:['Yang Pu · YGP BERTH',19+42.766/60,109+10.210/60,china],
+ HKHKG:['Hong Kong · HKG HIT',22+19.492/60,114+7.520/60,'Asia/Hong_Kong'],
+ CNYTN:['Yantian · YICT #11',22+34.336/60,114+17.037/60,china],
+ CNXMN:['Xiamen · XOCT 16#',24+27.281/60,117+58.196/60,china],
+ CNSHA:['Shanghai · YAN SDCT',30+37.539/60,122+3.372/60,china],
+ PABLB:['Panama Canal · PAN ANCHORAGE（太平洋侧，按 Balboa 检索）',8+52.620/60,-(79+27.691/60),'America/Panama']
+};
+const aliases={CNYSA:'CNSHA',PAPCN:'PABLB',PAPAC:'PABLB'};
+const portCode=()=>{const code=el('port').value.trim().toUpperCase();return aliases[code]||code};
+for(const [code,p] of Object.entries(ports)){const opt=document.createElement('option');opt.value=code;opt.label=p[0];el('ports').append(opt)}
+function localUTC(local,zone){
+ if(!/^\d{4}-\d\d-\d\dT\d\d:\d\d$/.test(local)) return [];
+ const t=Date.parse(local+'Z');if(!Number.isFinite(t)) return [];
+ const fmt=new Intl.DateTimeFormat('en-GB',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
+ const clock=ms=>{const a=Object.fromEntries(fmt.formatToParts(ms).map(x=>[x.type,x.value]));return a.year+'-'+a.month+'-'+a.day+'T'+a.hour+':'+a.minute};
+ const offsets=new Set([-86400000,0,86400000].map(d=>Date.parse(clock(t+d)+'Z')-(t+d)));
+ return [...offsets].map(off=>t-off).filter(ms=>clock(ms)===local).sort((a,b)=>a-b);
+}
+let etaVersion=0, pendingTide=null, lastPort='', selectedTime=null;
+function portChanged(){
+ etaVersion++;pendingTide=null;el('apply').hidden=true;el('result').textContent='';
+ const active=el('source').value==='port';
+ el('portPanel').hidden=!active;
+ if(!active)return;
+ el('tide').readOnly=true;el('tide').value='';update();
+ const code=portCode(),p=Object.hasOwn(ports,code)?ports[code]:null;
+ if(lastPort!==code){el('provider').value=p?.[4]?'noaa':'world';lastPort=code}
+ el('provider').options[0].disabled=!p?.[4];
+ el('berth').textContent=p?p[0]+' · '+p[1].toFixed(5)+', '+p[2].toFixed(5)+' · '+p[3]:'请输入清单中的五位代码';
+ el('keyLabel').hidden=el('provider').value!=='world';
+ const local=el('eta').value,options=p?localUTC(local,p[3]):[];
+ el('foldLabel').hidden=options.length!==2;
+ selectedTime=options.length===1?options[0]:options.length===2&&el('fold').value!==''?options[Number(el('fold').value)]:null;
+ el('utc').textContent=selectedTime!=null?'对应 UTC '+utcMinute(new Date(selectedTime)).replace('T',' '):p&&local?(options.length?'请选择回拨前或回拨后。':'该港当地不存在这个时间，请重新输入。'):'';
+ el('query').disabled=!p||selectedTime==null;
+}
+document.addEventListener('input',e=>{if(['source','port','eta','fold','provider','apiKey'].includes(e.target.id)){
+ if(['port','eta'].includes(e.target.id))el('fold').value='';
+ portChanged();
+}});
+async function tideJSON(url,options={}){
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),20000);
+ try{const r=await fetch(url,{...options,signal:controller.signal,cache:'no-store'});if(!r.ok)throw Error('数据源请求失败（HTTP '+r.status+'）。');return await r.json()}finally{clearTimeout(timer)}
+}
+async function noaaETA(p,ms){
+ const step=360000,lo=Math.floor(ms/step)*step,hi=Math.ceil(ms/step)*step;
+ const ntime=t=>utcMinute(new Date(t)).replaceAll('-','').replace('T',' ');
+ const q=new URLSearchParams({product:'predictions',station:p[4],datum:'MLLW',units:'metric',time_zone:'gmt',format:'json',interval:'6',begin_date:ntime(lo),end_date:ntime(hi+step),application:'MaritimeTools'});
+ const data=await tideJSON('https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?'+q);
+ const map=new Map((data.predictions||[]).filter(r=>typeof r.v==='string'&&r.v.trim()&&Number.isFinite(Number(r.v))).map(r=>[Date.parse(r.t.replace(' ','T')+'Z'),Number(r.v)]));
+ if(!map.has(lo)||!map.has(hi))throw Error('该站未返回覆盖 ETA 的分钟预报；可改用坐标查询或本船潮表。');
+ const h=lo===hi?map.get(lo):map.get(lo)+(map.get(hi)-map.get(lo))*(ms-lo)/step;
+ return {h,info:'NOAA '+p[4]+' '+p[5]+' · MLLW'+(lo===hi?'':' · 相邻 6 分钟预报线性插值')};
+}
+async function worldETA(p,ms){
+ const key=el('apiKey').value.trim();if(!key)throw Error('请填入个人 WorldTides API key。');
+ const sec=ms/1000;
+ const body=new URLSearchParams({key,heights:'',lat:String(p[1]),lon:String(p[2]),datum:'CD',start:String(sec-60),length:'180',step:'60'});
+ const data=await tideJSON('https://www.worldtides.info/api/v3',{method:'POST',body});
+ if(data.status!==200)throw Error('WorldTides 未返回预报，请检查账户、额度及覆盖。');
+ if(data.responseDatum!=='CD')throw Error('数据源未返回所请求的 CD，不能自动代入。');
+ const row=(data.heights||[]).find(r=>r.dt===sec);
+ if(!row||!Number.isFinite(row.height)||!Number.isFinite(data.responseLat)||!Number.isFinite(data.responseLon))throw Error('缺少 ETA 的潮高或预报位置。');
+ return {h:row.height,info:'WorldTides · '+(data.station||data.atlas||'模型')+' · CD · 实际预报点 '+data.responseLat+', '+data.responseLon+' · '+(data.copyright||'WorldTides')};
+}
+el('query').onclick=async()=>{
+ portChanged();const version=etaVersion,p=ports[portCode()],ms=selectedTime;
+ if(!p||ms==null)return;
+ el('query').disabled=true;el('result').textContent='正在查询…';
+ try{const result=await (el('provider').value==='noaa'?noaaETA(p,ms):worldETA(p,ms));
+ if(version!==etaVersion)return;
+ pendingTide=result.h;el('result').textContent=result.h.toFixed(3)+' m · '+result.info;el('apply').hidden=false;
+ }catch(e){if(version===etaVersion)el('result').textContent=e.message||'查询失败，请检查网络。'}
+ finally{if(version===etaVersion)el('query').disabled=false}
+};
+el('apply').onclick=()=>{if(el('source').value==='port'&&Number.isFinite(pendingTide)){
+ el('tide').value=String(pendingTide);update();el('apply').hidden=true;el('result').textContent+=' · 已代入';
+}};
+portChanged();
+
 try{const p=JSON.parse(localStorage.getItem(key));if(p){for(const f of fields)el(f).value=p[f]??'';el('status').textContent='已读取上次设置，请确认仍适用。'}}catch{}
 document.addEventListener('input',event=>{if(event.target.id==='draft'||event.target.id==='mode')el('manual').value='';if(fields.includes(event.target.id))el('status').textContent='设置已修改，尚未保存。';update()});
 el('save').onclick=()=>{try{localStorage.setItem(key,JSON.stringify(Object.fromEntries(fields.map(f=>[f,el(f).value]))));el('status').textContent='航段设置已保存。手动 Squat 随吃水重新确认。'}catch{el('status').textContent='浏览器未允许保存。本次计算仍可使用。'}};
