@@ -137,6 +137,15 @@ const ports={
 const aliases={CNYSA:'CNSHA',PAPCN:'PABLB',PAPAC:'PABLB'};
 const portCode=()=>{const code=el('port').value.trim().toUpperCase();return aliases[code]||code};
 for(const [code,p] of Object.entries(ports)){const opt=document.createElement('option');opt.value=code;opt.label=p[0];el('ports').append(opt)}
+function berthPosition(lat,lon){
+ const format=(value,width,positive,negative)=>{
+   const thousandths=Math.round(Math.abs(value)*60000);
+   const degrees=String(Math.floor(thousandths/60000)).padStart(width,'0');
+   const minutes=((thousandths%60000)/1000).toFixed(3).padStart(6,'0');
+   return degrees+'°'+minutes+'′'+(value<0?negative:positive);
+ };
+ return format(lat,2,'N','S')+'  '+format(lon,3,'E','W');
+}
 function localUTC(local,zone){
  if(!/^\d{4}-\d\d-\d\dT\d\d:\d\d$/.test(local)) return [];
  const t=Date.parse(local+'Z');if(!Number.isFinite(t)) return [];
@@ -155,7 +164,7 @@ function portChanged(){
  const code=portCode(),p=Object.hasOwn(ports,code)?ports[code]:null;
  if(lastPort!==code){el('provider').value=p?.[4]?'noaa':'world';lastPort=code}
  el('provider').options[0].disabled=!p?.[4];
- el('berth').textContent=p?p[0]+' · '+p[1].toFixed(5)+', '+p[2].toFixed(5)+' · '+p[3]:'请输入清单中的五位代码';
+ el('berth').textContent=p?p[0]+' · 船表位置 '+berthPosition(p[1],p[2])+' · 港口时区 '+p[3]:'请输入清单中的五位代码';
  el('keyLabel').hidden=el('provider').value!=='world';
  const local=el('eta').value,options=p?localUTC(local,p[3]):[];
  el('foldLabel').hidden=options.length!==2;
@@ -179,7 +188,7 @@ async function noaaETA(p,ms){
  const map=new Map((data.predictions||[]).filter(r=>typeof r.v==='string'&&r.v.trim()&&Number.isFinite(Number(r.v))).map(r=>[Date.parse(r.t.replace(' ','T')+'Z'),Number(r.v)]));
  if(!map.has(lo)||!map.has(hi))throw Error('该站未返回覆盖 ETA 的分钟预报；可改用坐标查询或本船潮表。');
  const h=lo===hi?map.get(lo):map.get(lo)+(map.get(hi)-map.get(lo))*(ms-lo)/step;
- return {h,info:'NOAA '+p[4]+' '+p[5]+' · MLLW'+(lo===hi?'':' · 相邻 6 分钟预报线性插值')};
+ return {h,info:'参考潮站预报 · NOAA '+p[4]+' '+p[5]+(p[4]==='8665530'?' · 潮站位置约 32°46.9′N 079°55.4′W':'')+' · MLLW · 泊位潮高须另行核对'+(lo===hi?'':' · 相邻 6 分钟预报线性插值')};
 }
 async function worldETA(p,ms){
  const key=el('apiKey').value.trim();if(!key)throw Error('请填入个人 WorldTides API key。');
